@@ -1,0 +1,9 @@
+developer/
+DEV/
+
+partial_indexes/
+doc_map.json
+
+__pycache__/
+.venv/
+*.pyc
