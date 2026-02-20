@@ -27,6 +27,8 @@ def build_inverted_index():
     
     doc_id = 0  # Counter for assigning unique IDs to documents
     partial_index_count = 1  # Counter for naming our partial files (index_1, index_2...)
+
+    unique_tokens = set() #Set for tracking unique tokens
     
     print(f"--- STARTING INDEXING from '{DEV_DIR}' ---") 
 
@@ -51,8 +53,8 @@ def build_inverted_index():
                     soup = bs(content, 'lxml')
                     text = soup.get_text()
                     
-                    # Tokenize and stem 
-                    tokens = tokenize(text)
+                    # Tokenize and stem, track unique tokens
+                    tokens = tokenize(text, unique_tokens)
                     
                     # Add to Index 
                     for token in tokens:
@@ -70,6 +72,9 @@ def build_inverted_index():
                     # Check progress every 1000 docs
                     if doc_id % 1000 == 0:
                         print(f"Processed {doc_id} documents...")
+                    #Check amount of unique tokens tracked every 10000 docs
+                    if doc_id % 10000 == 0:
+                        print(f"Tracked {len(unique_tokens)} unique tokens...")
 
                     # Offload to disk
                     if doc_id % OFFLOAD_THRESHOLD == 0:
@@ -91,6 +96,7 @@ def build_inverted_index():
     print(f"\n---INDEXING COMPLETE---")
     print(f"Total Documents Indexed: {doc_id}")
     print(f"Partial Indexes Created: {partial_index_count}")
+    print(f"Total Unique Tokens: {len(unique_tokens)}")
 
 # Helper that saves the current dictionary to a JSON
 def dump_partial_index(index_data, count):
