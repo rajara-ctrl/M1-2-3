@@ -29,6 +29,7 @@ def build_inverted_index():
     partial_index_count = 1  # Counter for naming our partial files (index_1, index_2...)
 
     unique_tokens = set() #Set for tracking unique tokens
+    total_index_size = int() #int for tracking total index size in bytes
     
     print(f"--- STARTING INDEXING from '{DEV_DIR}' ---") 
 
@@ -72,13 +73,12 @@ def build_inverted_index():
                     # Check progress every 1000 docs
                     if doc_id % 1000 == 0:
                         print(f"Processed {doc_id} documents...")
-                    #Check amount of unique tokens tracked every 10000 docs
-                    if doc_id % 10000 == 0:
-                        print(f"Tracked {len(unique_tokens)} unique tokens...")
 
                     # Offload to disk
                     if doc_id % OFFLOAD_THRESHOLD == 0:
-                        dump_partial_index(inverted_index, partial_index_count)
+                        total_index_size += dump_partial_index(inverted_index, partial_index_count) #update size tracker
+                        print(f"Index size is {total_index_size} bytes...") #displays total size for testing
+                        print(f"Tracked {len(unique_tokens)} unique tokens...") #Displays amount of unique tokens for testing
                         inverted_index.clear() # Wipe memory
                         partial_index_count += 1
 
@@ -87,23 +87,30 @@ def build_inverted_index():
 
     # Dump any remaining data after the loop
     if inverted_index:
-        dump_partial_index(inverted_index, partial_index_count)
+        total_index_size += dump_partial_index(inverted_index, partial_index_count)
     
     #  Save the Document Map (ID -> URL)
     with open("doc_map.json", "w") as f:
         json.dump(doc_map, f)
+    
+    #Convert bytes to kilobytes
+    total_KB_size = total_index_size / 1000
 
     print(f"\n---INDEXING COMPLETE---")
     print(f"Total Documents Indexed: {doc_id}")
     print(f"Partial Indexes Created: {partial_index_count}")
     print(f"Total Unique Tokens: {len(unique_tokens)}")
+    print(f"Total Index Size in Bytes: {total_index_size}")
+    print(f"Total Index Size in Kilobytes: {total_KB_size:.2f}")
 
-# Helper that saves the current dictionary to a JSON
+# Helper that saves the current dictionary to a JSON and returns total index size
 def dump_partial_index(index_data, count):
     filename = os.path.join(PARTIAL_INDEX_DIR, f"index_{count}.json")
     print(f"   --> Offloading partial index to {filename}...")
     with open(filename, 'w') as f:
         json.dump(index_data, f)
+    #Return current size of file in bytes
+    return os.path.getsize(filename)
 
 if __name__ == "__main__":
     build_inverted_index()
