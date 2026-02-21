@@ -2,6 +2,7 @@ import os
 import json
 from bs4 import BeautifulSoup as bs
 from tokenizer import tokenize
+import glob
 
 # This simply ignores the warning about parsing XML documents
 # "XMLParsedAsHTMLWarning: It looks like you're using an HTML parser to parse an XML document."
@@ -114,5 +115,28 @@ def dump_partial_index(index_data, count):
     #Return current size of file in bytes
     return os.path.getsize(filename)
 
-if __name__ == "__main__":
-    build_inverted_index()
+#Merges partial indexes into one dict and sorts postings list for each term
+def mergeIndexes():
+    #Get name of all files in a list
+    files = sorted(glob.glob("partial_indexes/index_*.json"))
+    #Dictionary to hold combined postings
+    merged = {}
+    #Go through every partial index file
+    for file in files:
+        with open(file, 'r', encoding='utf-8') as f:
+            #Load index into a dictionary in memory
+            index = json.load(f)
+            #For each term in index, add posting to merged dictionary
+            for term, postings in index.items():
+                #If term was in a previous index
+                if term in merged:
+                    #Add postings to end of postings list
+                    merged[term].update(postings)
+                else:
+                    merged.update({term: postings})
+    #Sort postings list for each term
+    for term in merged:
+        #Convert each doc_id to int for proper sorting logic
+        merged[term] = dict(sorted(merged[term].items(), key=lambda x: int(x[0])))
+    #Return sorted merged dict
+    return merged
