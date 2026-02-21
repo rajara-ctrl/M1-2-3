@@ -76,8 +76,8 @@ def build_inverted_index():
 
                     # Offload to disk
                     if doc_id % OFFLOAD_THRESHOLD == 0:
-                        total_index_size += dump_partial_index(inverted_index, partial_index_count) #update size tracker
-                        print(f"Index size is {total_index_size} bytes...") #displays total size for testing
+                        total_index_size += dump_partial_index(inverted_index, partial_index_count) #Update size tracker
+                        print(f"Index size is {total_index_size} bytes...") #Displays total size for testing
                         print(f"Tracked {len(unique_tokens)} unique tokens...") #Displays amount of unique tokens for testing
                         inverted_index.clear() # Wipe memory
                         partial_index_count += 1
