@@ -5,7 +5,7 @@ from nltk.stem import PorterStemmer
 stemmer = PorterStemmer()
 
 # Parses a string into a list of stemmed tokens and updates set of unique tokens
-def tokenize(text, unique_tokens):
+def tokenize(text):
     tokens = []
     
     # Lowercase and find all alphanumeric characters (a-z, 0-9)
@@ -16,8 +16,6 @@ def tokenize(text, unique_tokens):
     for token in raw_tokens:
         stemmed = stemmer.stem(token)
         tokens.append(stemmed)
-
-    #Add any unique tokens to tracker
-    unique_tokens.update(tokens)
+        
     #Return tokens list
     return tokens

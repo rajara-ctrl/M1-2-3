@@ -55,7 +55,9 @@ def build_inverted_index():
                     text = soup.get_text()
                     
                     # Tokenize and stem, track unique tokens
-                    tokens = tokenize(text, unique_tokens)
+                    tokens = tokenize(text)
+                    #Add any unique tokens to tracker
+                    unique_tokens.update(tokens)
                     
                     # Add to Index 
                     for token in tokens:
