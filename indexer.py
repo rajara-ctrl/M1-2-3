@@ -117,26 +117,74 @@ def dump_partial_index(index_data, count):
 
 #Merges partial indexes into one dict and sorts postings list for each term
 def mergeIndexes():
-    #Get name of all files in a list
+    """
+    Merges all partial indexes into one, sorts the postings, and then 
+    splits the final index into smaller alphabetical files
+    """
+    print("\n--- STARTING MERGE---")
+    import string
+
+    FINAL_INDEX_DIR = 'split_indexes'
+    # Create the folder for our final split files if it doesn't exist
+    if not os.path.exists(FINAL_INDEX_DIR):
+        os.makedirs(FINAL_INDEX_DIR)
+
+    # Find all the partial index files we created during indexing
     files = sorted(glob.glob("partial_indexes/index_*.json"))
-    #Dictionary to hold combined postings
     merged = {}
-    #Go through every partial index file
+    
+    # Load and combine indexes
+    print("Loading partial indexes into memory...")
     for file in files:
         with open(file, 'r', encoding='utf-8') as f:
-            #Load index into a dictionary in memory
             index = json.load(f)
-            #For each term in index, add posting to merged dictionary
+            
+            # Combine the postings lists for each term
             for term, postings in index.items():
-                #If term was in a previous index
                 if term in merged:
-                    #Add postings to end of postings list
                     merged[term].update(postings)
                 else:
-                    merged.update({term: postings})
-    #Sort postings list for each term
+                    merged[term] = postings
+
+    # Sort postings
+    # We must sort the document IDs as integers to allow for efficient 
+    # linear-time O(x+y) intersection during search.
+    print("Sorting postings lists...")
     for term in merged:
-        #Convert each doc_id to int for proper sorting logic
         merged[term] = dict(sorted(merged[term].items(), key=lambda x: int(x[0])))
-    #Return sorted merged dict
-    return merged
+
+    # Alphabetical splitting
+    print("Splitting final index alphabetically and saving to disk...")
+    
+    # Create a set of valid starting characters (a-z and 0-9)
+    valid_chars = set(string.ascii_lowercase + string.digits)
+    
+    # Initialize empty dictionaries for each letter/number, plus '_' for symbols
+    split_data = {char: {} for char in valid_chars}
+    split_data['_'] = {} 
+
+    # Distribute every term into its corresponding bucket based on its first letter
+    for term, postings in merged.items():
+        if not term: continue
+        first_char = term[0]
+        
+        # If it starts with a normal letter/number, put it in that bucket
+        if first_char in split_data:
+            split_data[first_char][term] = postings
+        # Otherwise, throw it in the '_' bucket
+        else:
+            split_data['_'][term] = postings
+
+    # Save to disk
+    # Write each letter's dictionary to its own JSON file 
+    for char, data in split_data.items():
+        if data: # Only create the file if there are actually words in this bucket
+            file_path = os.path.join(FINAL_INDEX_DIR, f"{char}.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+
+    print(f"--- MERGE COMPLETE, Saved to '{FINAL_INDEX_DIR}' folder ---")
+
+if __name__ == "__main__":
+    build_inverted_index()
+    mergeIndexes()
