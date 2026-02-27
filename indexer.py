@@ -186,5 +186,5 @@ def mergeIndexes():
     print(f"--- MERGE COMPLETE, Saved to '{FINAL_INDEX_DIR}' folder ---")
 
 if __name__ == "__main__":
-    build_inverted_index()
+    #build_inverted_index()
     mergeIndexes()
