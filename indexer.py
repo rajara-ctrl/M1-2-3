@@ -16,7 +16,12 @@ DEV_DIR = os.path.join('developer', 'DEV') #Path to the data
 PARTIAL_INDEX_DIR = 'partial_indexes' # Where we save the small index chunks to avoid running out of RAM
 OFFLOAD_THRESHOLD = 15000 # How many documents to process before dumping memory to disk
 
+#Global tracker for number of docs
+doc_id = int()
+
 def build_inverted_index():
+    #Let function know to use global variable
+    global doc_id
     #Create the output folder if it doesn't exist
     if not os.path.exists(PARTIAL_INDEX_DIR):
         os.makedirs(PARTIAL_INDEX_DIR)
@@ -117,6 +122,8 @@ def dump_partial_index(index_data, count):
 
 #Merges partial indexes into one dict and sorts postings list for each term
 def mergeIndexes():
+    #Display start message
+    print("Merging indexes...")
     #Get name of all files in a list
     files = sorted(glob.glob("partial_indexes/index_*.json"))
     #Dictionary to hold combined postings
@@ -133,10 +140,13 @@ def mergeIndexes():
                     #Add postings to end of postings list
                     merged[term].update(postings)
                 else:
+                    #Add new term with postings list
                     merged.update({term: postings})
     #Sort postings list for each term
     for term in merged:
         #Convert each doc_id to int for proper sorting logic
         merged[term] = dict(sorted(merged[term].items(), key=lambda x: int(x[0])))
+    #Let user know merge is done
+    print("Merge is done...")
     #Return sorted merged dict
     return merged
