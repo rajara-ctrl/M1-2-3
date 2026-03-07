@@ -16,9 +16,6 @@ DEV_DIR = os.path.join('developer', 'DEV') #Path to the data
 PARTIAL_INDEX_DIR = 'partial_indexes' # Where we save the small index chunks to avoid running out of RAM
 OFFLOAD_THRESHOLD = 15000 # How many documents to process before dumping memory to disk
 
-#Global tracker
-total_docs = 0 # Tracks number of documents in index
-
 def build_inverted_index():
     #Create the output folder if it doesn't exist
     if not os.path.exists(PARTIAL_INDEX_DIR):
@@ -34,7 +31,6 @@ def build_inverted_index():
 
     unique_tokens = set() # Set for tracking unique tokens
     total_index_size = int() # int for tracking total index size in bytes
-    global total_docs # Make sure method knows tracker is global
     
     print(f"--- STARTING INDEXING from '{DEV_DIR}' ---") 
 
@@ -101,17 +97,22 @@ def build_inverted_index():
         json.dump(doc_map, f)
     
     # Convert bytes to kilobytes
-    total_KB_size = total_index_size / 1000
-    # Update total docs tracker
-    total_docs = doc_id
+    total_KB_size = round((total_index_size / 1000), 2)
+
+    #Store stats in dict
+    stats = {"Document Count":doc_id, 
+    "Partial Indexes Count":partial_index_count,
+    "Unique Tokens":len(unique_tokens),
+    "Size in Bytes":total_index_size,
+    "Size in KB":total_KB_size}
+
+    #Unload indexing statistics into file
+    name = os.path.join(PARTIAL_INDEX_DIR, f"stats_index.json") #Create file name
+    print(f"   --> Offloading index stats to {name}...")
+    with open(name, 'w', encoding='utf-8') as stats_file:
+            json.dump(stats, stats_file, indent=2)
 
     print(f"\n---INDEXING COMPLETE---")
-    print(f"Total Documents Indexed: {doc_id}")
-    print(f"Partial Indexes Created: {partial_index_count}")
-    print(f"Total Unique Tokens: {len(unique_tokens)}")
-    print(f"Total Index Size in Bytes: {total_index_size}")
-    print(f"Total Index Size in Kilobytes: {total_KB_size:.2f}")
-    print(f"Total Documents: {total_docs}")
 
 # Helper that saves the current dictionary to a JSON and returns total index size
 def dump_partial_index(index_data, count):
@@ -218,5 +219,4 @@ def mergeIndexes():
     print(f"--- MERGE COMPLETE, Saved indexes to '{FINAL_INDEX_DIR}' folder, Saved vocabs to '{VOCAB_DIR}' folder ---")
 
 if __name__ == "__main__":
-    #build_inverted_index()
-    mergeIndexes()
+    build_inverted_index()
