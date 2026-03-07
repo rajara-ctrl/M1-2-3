@@ -2,7 +2,6 @@ import os
 import json
 import time
 import math
-from indexer import PARTIAL_INDEX_DIR
 from tokenizer import tokenize
 from collections import Counter
 
@@ -10,13 +9,7 @@ from collections import Counter
 DOC_MAP_FILE = 'doc_map.json'
 SPLIT_INDEX_DIR = 'split_indexes'
 VOCAB_DIR = 'split_vocabs'
-STATS_FILE = 'stats_index.json'
-
-# Get total number of docs for calculations
-file_path = f"{PARTIAL_INDEX_DIR}/{STATS_FILE}"
-with open(file_path, 'r', encoding='utf-8') as stats_:
-    stat = json.load(stats_) # Load stats as dict
-    total_docs = stat["Document Count"] # Get total docs in index
+DOC_LENGTH_FILE = 'doc_lengths.json'
 
 def load_doc_map():
     """
@@ -52,8 +45,14 @@ def search(query, doc_map):
     # Cache to reuse needed vocabs
     v_cache = {}
 
-    # Counter to store Score(q,d) for each document
-    scores = Counter()
+    # Counter to hold dot product for each doc
+    dot_products = Counter()
+    # Counter to store weight for each term in query
+    q_weights = Counter()
+    # Counter for query tf counts
+    q_tf = Counter(tokens)
+    # Sum of query term weights squared (for query vector length)
+    sum_q_weights_squared = float()
     
     for token in tokens:
         # Determine which split file contains this token 
@@ -82,14 +81,20 @@ def search(query, doc_map):
                     # Each posting is valid for scoring since it contains at least one query term
                     postings_list = term_dict[token]
 
-                    df = terms[token][1] # Get df for term
-                    idf = (math.log((total_docs / df), 10)) # Calculate idf
+                    idf = terms[token][2] # Get idf for term
 
-                    # Calculate Score(q, d) for each document in postings dict
-                    for id, tf in postings_list.items():
-                        score = (1 + math.log(tf, 10)) * idf
-                        scores[int(id)] += score # Inserts or updates scores for current doc
-                    
+                    # Calculate token weight in terms of query
+                    query_freq = q_tf[token] # Frequency of term in query
+                    qt_weight = (1 + math.log(query_freq, 10)) * idf # Calculate query term tf-idf weight
+                    q_weights[token] += qt_weight # Inserts or updates weight for current query term
+                    sum_q_weights_squared += qt_weight**2 # Update tracker for query vector length
+
+                    # Calculate dot product for each document in postings dict
+                    for id, d_weight in postings_list.items():
+                        current_q_weight = q_weights[token] # Retrieve query weight
+                        total_weight = d_weight * current_q_weight # Calculate dot product
+                        dot_products[int(id)] += total_weight # Insert or update dot product for current doc
+
                 else:
                     # If token is not found, move onto next token
                     continue
@@ -97,17 +102,30 @@ def search(query, doc_map):
             print(f"0 results found. (Index file for '{first_char}' missing).")
             return
     
-   
+    # Get doc vector lengths
+    with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
+        d_lengths = json.load(doc_file) # Dict to hold doc vectors lengths
+
+    # Dict to hold cosine score for each doc
+    similarity_scores = dict()
+
+    # Find square root of calculated squared query vector length
+    q_length = math.sqrt(sum_q_weights_squared)
+
+    # Calculate cosine similarity score for each dot product
+    for id, dot in dot_products.items():
+        d_length = d_lengths[str(id)] # Get current doc length
+        normalization = (d_length * q_length) # Calculate normalization of vectors
+        similarity_scores[int(id)] = (dot / normalization) # Cosine(q,d) = Dot product / |d|*|q|
 
     # Stop the stopwatch and calculate milliseconds
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000
 
     # Formatting & Output
-
     print(f"\n--- Search Results ---")
     print(f"Query: '{query}'")
-    print(f"Found {len(scores)} valid documents in {elapsed_ms:.2f} ms")
+    print(f"Found {len(similarity_scores)} valid documents in {elapsed_ms:.2f} ms")
     
     #if not result_list:
         #print("No documents contained ALL query terms.")
