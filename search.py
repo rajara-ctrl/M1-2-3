@@ -1,12 +1,22 @@
 import os
 import json
 import time
+import math
+from indexer import PARTIAL_INDEX_DIR
 from tokenizer import tokenize
+from collections import Counter
 
 # --- CONFIGURATION ---
 DOC_MAP_FILE = 'doc_map.json'
 SPLIT_INDEX_DIR = 'split_indexes'
 VOCAB_DIR = 'split_vocabs'
+STATS_FILE = 'stats_index.json'
+
+# Get total number of docs for calculations
+file_path = f"{PARTIAL_INDEX_DIR}/{STATS_FILE}"
+with open(file_path, 'r', encoding='utf-8') as stats_:
+    stat = json.load(stats_) # Load stats as dict
+    total_docs = stat["Document Count"] # Get total docs in index
 
 def load_doc_map():
     """
@@ -26,6 +36,9 @@ def search(query, doc_map):
     """
     # Start the stopwatch to prove we meet the < 300ms requirement
     start_time = time.time()
+
+    # Tell method to use global
+    global total_docs
     
     # Query Processing
     # We must tokenize and stem the query using the exact same logic we used 
@@ -36,12 +49,11 @@ def search(query, doc_map):
         print("Please enter a valid query.")
         return
 
-    # Disk Retrieval
-    # We will store the sets of Document IDs for each query term here
-    postings_lists = []
-
-    # Create a cache to reuse needed vocabs
+    # Cache to reuse needed vocabs
     v_cache = {}
+
+    # Counter to store Score(q,d) for each document
+    scores = Counter()
     
     for token in tokens:
         # Determine which split file contains this token 
@@ -63,28 +75,27 @@ def search(query, doc_map):
                 
                 if token in terms:
                     # Calculate byte position of term
-                    f.seek(terms[token])
+                    f.seek(terms[token][0])
+
+                    # Get postings for that term
                     term_dict = json.loads(f.readline())
-                    postings_lists.append(term_dict[token]) # Add term postings list to total postings lists
+
+                    df = terms[token][1] # Get df for term
+                    idf = (math.log((total_docs / df), 10)) # Calculate idf
+
+                    # Calculate Score(q, d) for each document in postings dict
+                    for id, tf in term_dict:
+                        score = (1 + math.log(tf, 10)) * idf
+                        scores.update({id:score})
+                    
                 else:
                     # If token is not found, move onto next token
                     continue
         except FileNotFoundError:
             print(f"0 results found. (Index file for '{first_char}' missing).")
             return
-
-    #Query Optimization & Boolean AND Intersection
-    # Optimization: Sort the lists by size (smallest to largest).
-    # Intersecting the smallest sets first eliminates the most candidates immediately,
-    # drastically speeding up the query
-    postings_lists.sort(key=len)
     
-    # Start with the smallest set of documents
-    result_set = postings_lists[0]
-    
-    # Perform the Boolean AND by intersecting with the remaining sets
-    for s in postings_lists[1:]:
-        result_set = result_set.intersection(s)
+   
 
     # Stop the stopwatch and calculate milliseconds
     end_time = time.time()
