@@ -3,6 +3,8 @@ import json
 from bs4 import BeautifulSoup as bs
 from tokenizer import tokenize
 import glob
+import math
+from collections import Counter
 
 # This simply ignores the warning about parsing XML documents
 # "XMLParsedAsHTMLWarning: It looks like you're using an HTML parser to parse an XML document."
@@ -106,10 +108,11 @@ def build_inverted_index():
     "Size in Bytes":total_index_size,
     "Size in KB":total_KB_size}
 
+    STATS_FILE = 'stats_index.json' # Name of stats file
+
     #Unload indexing statistics into file
-    name = os.path.join(PARTIAL_INDEX_DIR, f"stats_index.json") #Create file name
-    print(f"   --> Offloading index stats to {name}...")
-    with open(name, 'w', encoding='utf-8') as stats_file:
+    print(f"   --> Offloading index stats to {STATS_FILE}...")
+    with open(STATS_FILE, 'w', encoding='utf-8') as stats_file:
             json.dump(stats, stats_file, indent=2)
 
     print(f"\n---INDEXING COMPLETE---")
@@ -192,6 +195,16 @@ def mergeIndexes():
     vocab_dict = {char: {} for char in valid_chars}
     vocab_dict['_'] = {}
 
+    STATS_FILE = 'stats_index.json'
+
+    # Get total number of docs for idf calculation
+    with open(STATS_FILE, 'r', encoding='utf-8') as stats_:
+        stat = json.load(stats_) # Load stats as dict
+        total_docs = stat["Document Count"] # Get total docs in index
+
+    # Counter for tracking document vector lengths
+    d_lengths = Counter()
+
     # Save split indexes to disk
     # Write each letter's dictionary to its own JSON file 
     for char, data in split_data.items():
@@ -200,11 +213,19 @@ def mergeIndexes():
             with open(file_path, 'w', encoding='utf-8') as f:
                 for term, posting in sorted(data.items()):
                     position = f.tell() # Get byte position
-                    json.dump({term:posting}, f) # Add term and postings list to split index file
-                    f.write("\n")
+    
                     df = len(posting) # Gets total number of documents that contain term
-                    term_stats = [position, df] # List that holds term statistics
+                    idf = math.log((total_docs / df), 10) # Calculate idf
+                    term_stats = [position, df, idf] # List that holds term statistics
                     vocab_dict[char][term] = term_stats # Add term and byte position to vocabulary
+                
+                    for id, tf in posting.items(): # Calculate document vector length
+                        weight = (1 + math.log(tf, 10)) * idf # Calculate document weight
+                        posting[id] = weight # Change tf to tf-idf weight
+                        d_lengths[int(id)] += weight**2 # Add to sum of doc weight squared
+                    
+                    json.dump({term:posting}, f) # Add term and updated postings list to split index file
+                    f.write("\n")
 
     # Let user know vocabs are being saved
     print("Saving index vocabs to disk...")
@@ -215,8 +236,29 @@ def mergeIndexes():
             file_path = os.path.join(VOCAB_DIR, f"vocab_{char}.json")
             with open (file_path, 'w', encoding='utf-8') as f:
                 json.dump(vocab_dict[char], f) # Write vocab dict to file
+    
+    # Let user know final document vector lengths are being calculated
+    print("Calculating final document vector lengths...")
 
-    print(f"--- MERGE COMPLETE, Saved indexes to '{FINAL_INDEX_DIR}' folder, Saved vocabs to '{VOCAB_DIR}' folder ---")
+    #Calculate final document vector lengths
+    for d_id, length in d_lengths.items():
+        d_lengths[d_id] = math.sqrt(length)
+    
+    # Let user know final document vector lengths are being saved
+    print("Saving final document vector lengths to disk...")
+    
+    DOC_LENGTH_FILE = 'doc_lengths.json'
+
+    # Save lengths to file
+    with open(DOC_LENGTH_FILE, 'w', encoding='utf-8') as d_file:
+        json.dump(d_lengths, d_file)
+
+
+    print(f"Saved indexes to '{FINAL_INDEX_DIR}' folder, " +
+        f"Saved vocabs to '{VOCAB_DIR}' folder, " +
+        f"Saved document vector lengths to '{DOC_LENGTH_FILE}' file" +
+        f"\n--- MERGE COMPLETE ---")
 
 if __name__ == "__main__":
-    build_inverted_index()
+    #build_inverted_index()
+    mergeIndexes()
