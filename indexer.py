@@ -125,9 +125,14 @@ def mergeIndexes():
     import string
 
     FINAL_INDEX_DIR = 'split_indexes'
+    VOCAB_DIR = 'split_vocabs'
     # Create the folder for our final split files if it doesn't exist
     if not os.path.exists(FINAL_INDEX_DIR):
         os.makedirs(FINAL_INDEX_DIR)
+
+     # Create the folder for our vocab files if it doesn't exist
+    if not os.path.exists(VOCAB_DIR):
+        os.makedirs(VOCAB_DIR)
 
     # Find all the partial index files we created during indexing
     files = sorted(glob.glob("partial_indexes/index_*.json"))
@@ -175,15 +180,33 @@ def mergeIndexes():
         else:
             split_data['_'][term] = postings
 
-    # Save to disk
+    # Initialize empty bookmarking dictionaries for each split index
+    vocab_dict = {char: {} for char in valid_chars}
+    vocab_dict['_'] = {}
+
+    # Save split indexes to disk
     # Write each letter's dictionary to its own JSON file 
     for char, data in split_data.items():
         if data: # Only create the file if there are actually words in this bucket
             file_path = os.path.join(FINAL_INDEX_DIR, f"{char}.json")
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f)
+                for term, posting in data.items():
+                    position = f.tell() # Get byte position
+                    json.dump({term:posting}, f) # Add term and postings list to split index file
+                    f.write("\n")
+                    vocab_dict[char][term] = position # Add term and byte position to vocabulary
 
-    print(f"--- MERGE COMPLETE, Saved to '{FINAL_INDEX_DIR}' folder ---")
+    # Let user know vocabs are being saved
+    print("Saving index vocabs to disk...")
+    
+    # Save vocabs to disk
+    for char, dictionary in vocab_dict.items():
+        if dictionary: # Only create file if vocab contains items
+            file_path = os.path.join(VOCAB_DIR, f"vocab_{char}.json")
+            with open (file_path, 'w', encoding='utf-8') as f:
+                json.dump(vocab_dict[char], f) # Write vocab dict to file
+
+    print(f"--- MERGE COMPLETE, Saved indexes to '{FINAL_INDEX_DIR}' folder, Saved vocabs to '{VOCAB_DIR}' folder ---")
 
 if __name__ == "__main__":
     #build_inverted_index()
