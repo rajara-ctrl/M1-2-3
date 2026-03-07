@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup as bs
 from tokenizer import tokenize
 import glob
 import math
+import heapq
 from collections import Counter
 
 # This simply ignores the warning about parsing XML documents
@@ -205,6 +206,9 @@ def mergeIndexes():
     # Counter for tracking document vector lengths
     d_lengths = Counter()
 
+    # Dict to store top 10 tf-idf doc weights for each term (champion list)
+    champion_dict = dict()
+
     # Save split indexes to disk
     # Write each letter's dictionary to its own JSON file 
     for char, data in split_data.items():
@@ -213,6 +217,7 @@ def mergeIndexes():
             with open(file_path, 'w', encoding='utf-8') as f:
                 for term, posting in sorted(data.items()):
                     position = f.tell() # Get byte position
+                    heap = [] # Min heap to track top r documents (by tf-idf weight)
     
                     df = len(posting) # Gets total number of documents that contain term
                     idf = math.log((total_docs / df), 10) # Calculate idf
@@ -223,7 +228,15 @@ def mergeIndexes():
                         weight = (1 + math.log(tf, 10)) * idf # Calculate document weight
                         posting[id] = weight # Change tf to tf-idf weight
                         d_lengths[int(id)] += weight**2 # Add to sum of doc weight squared
+                        pair = (weight, id) # Make a pair fo heap insertions
+                        if(len(heap) < 10): # r = 10
+                            heapq.heappush(heap, pair) # Push if less than 10
+                        else: # Push if greater than smallest heap weight
+                            if(weight > heap[0][0]): heapq.heapreplace(heap, pair)
                     
+                    heap = sorted(heap, reverse=True) # Sort champion heap in descending order
+                    champion_dict[term] = heap # Add term champion heap to dict
+
                     json.dump({term:posting}, f) # Add term and updated postings list to split index file
                     f.write("\n")
 
@@ -236,6 +249,15 @@ def mergeIndexes():
             file_path = os.path.join(VOCAB_DIR, f"vocab_{char}.json")
             with open (file_path, 'w', encoding='utf-8') as f:
                 json.dump(vocab_dict[char], f) # Write vocab dict to file
+    
+     # Let user know vocabs are being saved
+    print("Saving document champion lists to disk...")
+    
+    DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json'
+
+    # Save document champion lists to disk
+    with open (DOC_CHAMPION_LISTS_FILE, 'w', encoding='utf-8') as fp:
+        json.dump(champion_dict, fp) # Write champion dict to file
     
     # Let user know final document vector lengths are being calculated
     print("Calculating final document vector lengths...")
