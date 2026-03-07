@@ -16,6 +16,9 @@ DEV_DIR = os.path.join('developer', 'DEV') #Path to the data
 PARTIAL_INDEX_DIR = 'partial_indexes' # Where we save the small index chunks to avoid running out of RAM
 OFFLOAD_THRESHOLD = 15000 # How many documents to process before dumping memory to disk
 
+#Global tracker
+total_docs = 0 # Tracks number of documents in index
+
 def build_inverted_index():
     #Create the output folder if it doesn't exist
     if not os.path.exists(PARTIAL_INDEX_DIR):
@@ -29,8 +32,9 @@ def build_inverted_index():
     doc_id = 0  # Counter for assigning unique IDs to documents
     partial_index_count = 1  # Counter for naming our partial files (index_1, index_2...)
 
-    unique_tokens = set() #Set for tracking unique tokens
-    total_index_size = int() #int for tracking total index size in bytes
+    unique_tokens = set() # Set for tracking unique tokens
+    total_index_size = int() # int for tracking total index size in bytes
+    global total_docs # Make sure method knows tracker is global
     
     print(f"--- STARTING INDEXING from '{DEV_DIR}' ---") 
 
@@ -96,8 +100,10 @@ def build_inverted_index():
     with open("doc_map.json", "w") as f:
         json.dump(doc_map, f)
     
-    #Convert bytes to kilobytes
+    # Convert bytes to kilobytes
     total_KB_size = total_index_size / 1000
+    # Update total docs tracker
+    total_docs = doc_id
 
     print(f"\n---INDEXING COMPLETE---")
     print(f"Total Documents Indexed: {doc_id}")
@@ -105,6 +111,7 @@ def build_inverted_index():
     print(f"Total Unique Tokens: {len(unique_tokens)}")
     print(f"Total Index Size in Bytes: {total_index_size}")
     print(f"Total Index Size in Kilobytes: {total_KB_size:.2f}")
+    print(f"Total Documents: {total_docs}")
 
 # Helper that saves the current dictionary to a JSON and returns total index size
 def dump_partial_index(index_data, count):
@@ -190,11 +197,13 @@ def mergeIndexes():
         if data: # Only create the file if there are actually words in this bucket
             file_path = os.path.join(FINAL_INDEX_DIR, f"{char}.json")
             with open(file_path, 'w', encoding='utf-8') as f:
-                for term, posting in data.items():
+                for term, posting in sorted(data.items()):
                     position = f.tell() # Get byte position
                     json.dump({term:posting}, f) # Add term and postings list to split index file
                     f.write("\n")
-                    vocab_dict[char][term] = position # Add term and byte position to vocabulary
+                    df = len(posting) # Gets total number of documents that contain term
+                    term_stats = [position, df] # List that holds term statistics
+                    vocab_dict[char][term] = term_stats # Add term and byte position to vocabulary
 
     # Let user know vocabs are being saved
     print("Saving index vocabs to disk...")
