@@ -6,6 +6,7 @@ from tokenizer import tokenize
 # --- CONFIGURATION ---
 DOC_MAP_FILE = 'doc_map.json'
 SPLIT_INDEX_DIR = 'split_indexes'
+VOCAB_DIR = 'split_vocabs'
 
 def load_doc_map():
     """
@@ -38,28 +39,36 @@ def search(query, doc_map):
     # Disk Retrieval
     # We will store the sets of Document IDs for each query term here
     postings_lists = []
+
+    # Create a cache to reuse needed vocabs
+    v_cache = {}
     
     for token in tokens:
         # Determine which split file contains this token 
         first_char = token[0] if token[0].isalnum() else '_'
         file_path = os.path.join(SPLIT_INDEX_DIR, f"{first_char}.json")
+        vocab_f_path = os.path.join(VOCAB_DIR, f"vocab_{first_char}.json")
+
+         # If vocab not in cache, load vocab for containing term
+        if(f"vocab_{first_char}" not in v_cache):
+            with open(vocab_f_path, 'r', encoding='utf-8') as file:
+                v_cache[f"vocab_{first_char}"] = json.load(file) # Add vocab dict to cache
         
+        # Get current vocab dict needed for token
+        terms = v_cache[f"vocab_{first_char}"]
+
         try:
             # Only load the specific letter file we need into memory
             with open(file_path, 'r', encoding='utf-8') as f:
-                index_chunk = json.load(f)
                 
-                if token in index_chunk:
-                    # The index stores {docID: frequency}. 
-                    # For Boolean AND, we only care about the docIDs (the keys).
-                    # We convert them to a Python Set to make intersection math fast.
-                    postings_lists.append(set(index_chunk[token].keys()))
+                if token in terms:
+                    # Calculate byte position of term
+                    f.seek(terms[token])
+                    term_dict = json.loads(f.readline())
+                    postings_lists.append(term_dict[token]) # Add term postings list to total postings lists
                 else:
-                    # If even one word from an AND query is entirely missing from 
-                    # the database, the intersection will be zero
-                    # we can stop early
-                    print(f"0 results found. (Word '{token}' not found in index).")
-                    return
+                    # If token is not found, move onto next token
+                    continue
         except FileNotFoundError:
             print(f"0 results found. (Index file for '{first_char}' missing).")
             return
