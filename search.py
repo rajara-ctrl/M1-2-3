@@ -29,9 +29,6 @@ def search(query, doc_map):
     """
     # Start the stopwatch to prove we meet the < 300ms requirement
     start_time = time.time()
-
-    # Tell method to use global
-    global total_docs
     
     # Query Processing
     # We must tokenize and stem the query using the exact same logic we used 
@@ -53,11 +50,15 @@ def search(query, doc_map):
     q_tf = Counter(tokens)
     # Sum of query term weights squared (for query vector length)
     sum_q_weights_squared = float()
+    # Sum of query term weights (for threshold calculation)
+    weight_threshold = float()
+    # List to track valid query tokens
+    valids = []
     
+    # Find valid tokens and average weight them
     for token in tokens:
-        # Determine which split file contains this token 
+        # Determine which vocab file would contain this token 
         first_char = token[0] if token[0].isalnum() else '_'
-        file_path = os.path.join(SPLIT_INDEX_DIR, f"{first_char}.json")
         vocab_f_path = os.path.join(VOCAB_DIR, f"vocab_{first_char}.json")
 
          # If vocab not in cache, load vocab for containing term
@@ -68,11 +69,39 @@ def search(query, doc_map):
         # Get current vocab dict needed for token
         terms = v_cache[f"vocab_{first_char}"]
 
+        # Check if term is in vocab (if not, term is not valid)
+        if token in terms:
+            valids.append(token) # Marks token as valid
+            weight_threshold += terms[token][2] # Adds token weight to tracker
+
+    # Calculate average token weight for threshold
+    if len(valids) != 0: weight_threshold /= len(valids)
+
+    # Make list of query terms with high weights
+    high_weights_list = []
+
+    # Filter out query terms that do not meet threshold
+    for term in valids:
+        first_char = term[0] if term[0].isalnum() else '_'
+        terms = v_cache[f"vocab_{first_char}"]
+        if terms[term][2] >= weight_threshold: # Add term to list if it meets threshold
+            high_weights_list.append(term)
+
+    if len(high_weights_list) >= 4: # Make sure there are enough terms for effective search
+        valids = high_weights_list
+
+    for token in valids:
+         # Determine which split file contains this token 
+        first_char = token[0] if token[0].isalnum() else '_'
+        file_path = os.path.join(SPLIT_INDEX_DIR, f"{first_char}.json")
+
+        terms = v_cache[f"vocab_{first_char}"]
+
         try:
             # Only load the specific letter file we need into memory
             with open(file_path, 'r', encoding='utf-8') as f:
-                
-                if token in terms:
+
+                if len(valids) > 1: # Multiple valid tokens in query
                     # Calculate byte position of term
                     f.seek(terms[token][0])
 
@@ -95,28 +124,51 @@ def search(query, doc_map):
                         total_weight = d_weight * current_q_weight # Calculate dot product
                         dot_products[int(id)] += total_weight # Insert or update dot product for current doc
 
-                else:
-                    # If token is not found, move onto next token
-                    continue
+                elif len(valids) == 1: # Only one valid token in query
+                    f.seek(terms[token][0])
+                    term_dict = json.loads(f.readline())
+                    postings_list = term_dict[token] # Store token postings for score calculations
+                    break 
+
+                else: # If no tokens are valid
+                    print("0 results found for current query.")
+                    return
         except FileNotFoundError:
             print(f"0 results found. (Index file for '{first_char}' missing).")
             return
     
-    # Get doc vector lengths
-    with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
-        d_lengths = json.load(doc_file) # Dict to hold doc vectors lengths
+    if(len(valids) > 1):
+        # Get doc vector lengths
+        with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
+            d_lengths = json.load(doc_file) # Dict to hold doc vectors lengths
 
-    # Dict to hold cosine score for each doc
-    similarity_scores = dict()
+        # Dict to hold cosine score for each doc
+        similarity_scores = dict()
 
-    # Find square root of calculated squared query vector length
-    q_length = math.sqrt(sum_q_weights_squared)
+        # Find square root of calculated squared query vector length
+        q_length = math.sqrt(sum_q_weights_squared)
 
-    # Calculate cosine similarity score for each dot product
-    for id, dot in dot_products.items():
-        d_length = d_lengths[str(id)] # Get current doc length
-        normalization = (d_length * q_length) # Calculate normalization of vectors
-        similarity_scores[int(id)] = (dot / normalization) # Cosine(q,d) = Dot product / |d|*|q|
+        # Calculate cosine similarity score for each dot product
+        for id, dot in dot_products.items():
+            d_length = d_lengths[str(id)] # Get current doc length
+            normalization = (d_length * q_length) # Calculate normalization of vectors
+            similarity_scores[int(id)] = (dot / normalization) # Cosine(q,d) = Dot product / |d|*|q|
+
+    #Skip query vectory length calculations
+    elif(len(valids) == 1):
+        with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
+            d_lengths = json.load(doc_file)
+        
+        # Dict to hold cosine score for each term doc
+        similarity_scores = dict()
+
+        #Calculate score for each doc in postings list
+        for id, weight in postings_list.items():
+            d_length = d_lengths[str(id)] # Get current doc length
+            score = weight / d_length # Calculate cosine score for doc
+            similarity_scores[int(id)] = score # Cosine(q,d) = d_weight / |d|
+        
+    print(valids)
 
     # Stop the stopwatch and calculate milliseconds
     end_time = time.time()
