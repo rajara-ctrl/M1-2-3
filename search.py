@@ -79,14 +79,16 @@ def search(query, doc_map):
 
                     # Get postings for that term
                     term_dict = json.loads(f.readline())
+                    # Each posting is valid for scoring since it contains at least one query term
+                    postings_list = term_dict[token]
 
                     df = terms[token][1] # Get df for term
                     idf = (math.log((total_docs / df), 10)) # Calculate idf
 
                     # Calculate Score(q, d) for each document in postings dict
-                    for id, tf in term_dict:
+                    for id, tf in postings_list.items():
                         score = (1 + math.log(tf, 10)) * idf
-                        scores.update({id:score})
+                        scores[int(id)] += score # Inserts or updates scores for current doc
                     
                 else:
                     # If token is not found, move onto next token
@@ -102,21 +104,21 @@ def search(query, doc_map):
     elapsed_ms = (end_time - start_time) * 1000
 
     # Formatting & Output
-    result_list = list(result_set)
+
     print(f"\n--- Search Results ---")
     print(f"Query: '{query}'")
-    print(f"Found {len(result_list)} valid documents in {elapsed_ms:.2f} ms")
+    print(f"Found {len(scores)} valid documents in {elapsed_ms:.2f} ms")
     
-    if not result_list:
-        print("No documents contained ALL query terms.")
-        return
+    #if not result_list:
+        #print("No documents contained ALL query terms.")
+        #return
 
-    print(f"\nTop 5 URLs:")
+    #print(f"\nTop 5 URLs:")
     # Loop through the first 5 document IDs and look up their real URLs
-    for i, doc_id in enumerate(result_list[:5]):
-        url = doc_map.get(str(doc_id), "URL not found")
-        print(f"{i + 1}. {url}")
-    print("-" * 35)
+    #for i, doc_id in enumerate(result_list[:5]):
+        #url = doc_map.get(str(doc_id), "URL not found")
+        #print(f"{i + 1}. {url}")
+    #print("-" * 35)
 
 # Main ui
 if __name__ == "__main__":
