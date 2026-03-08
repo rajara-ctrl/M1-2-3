@@ -1,7 +1,9 @@
 import os
+import glob
 import json
 import time
 import math
+import re
 from tokenizer import tokenize
 from collections import Counter
 
@@ -10,6 +12,25 @@ DOC_MAP_FILE = 'doc_map.json'
 SPLIT_INDEX_DIR = 'split_indexes'
 VOCAB_DIR = 'split_vocabs'
 DOC_LENGTH_FILE = 'doc_lengths.json'
+DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json'
+
+# Get champions list for all terms
+with open(DOC_CHAMPION_LISTS_FILE, 'r', encoding='utf-8') as f:
+    champion_dict = json.load(f) # Load champion list dict into memory
+
+# Get doc vector lengths
+with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
+    d_lengths = json.load(doc_file) # Dict to hold doc vectors lengths
+
+# Load vocabs into memory
+vocabs = {} # Dict to hold vocabs
+
+files = sorted(glob.glob(f"{VOCAB_DIR}/vocab_*.json")) # Get every vocab file name
+
+for file in files:
+    with open(file, 'r', encoding='utf-8') as vocab_file:
+        file = re.split(r'[./]', file)[1]
+        vocabs[f"{file}"] = json.load(vocab_file) # Add vocab to dict
 
 def load_doc_map():
     """
@@ -39,9 +60,6 @@ def search(query, doc_map):
         print("Please enter a valid query.")
         return
 
-    # Cache to reuse needed vocabs
-    v_cache = {}
-
     # Counter to hold dot product for each doc
     dot_products = Counter()
     # Counter to store weight for each term in query
@@ -59,15 +77,9 @@ def search(query, doc_map):
     for token in tokens:
         # Determine which vocab file would contain this token 
         first_char = token[0] if token[0].isalnum() else '_'
-        vocab_f_path = os.path.join(VOCAB_DIR, f"vocab_{first_char}.json")
-
-         # If vocab not in cache, load vocab for containing term
-        if(f"vocab_{first_char}" not in v_cache):
-            with open(vocab_f_path, 'r', encoding='utf-8') as file:
-                v_cache[f"vocab_{first_char}"] = json.load(file) # Add vocab dict to cache
         
         # Get current vocab dict needed for token
-        terms = v_cache[f"vocab_{first_char}"]
+        terms = vocabs[f"vocab_{first_char}"]
 
         # Check if term is in vocab (if not, term is not valid)
         if token in terms:
@@ -83,7 +95,7 @@ def search(query, doc_map):
     # Filter out query terms that do not meet threshold
     for term in valids:
         first_char = term[0] if term[0].isalnum() else '_'
-        terms = v_cache[f"vocab_{first_char}"]
+        terms = vocabs[f"vocab_{first_char}"]
         if terms[term][2] >= weight_threshold: # Add term to list if it meets threshold
             high_weights_list.append(term)
 
@@ -91,57 +103,47 @@ def search(query, doc_map):
         valids = high_weights_list
 
     for token in valids:
-         # Determine which split file contains this token 
+        # Determine first char of token
         first_char = token[0] if token[0].isalnum() else '_'
-        file_path = os.path.join(SPLIT_INDEX_DIR, f"{first_char}.json")
+        
+        # Use vocab containg token
+        terms = vocabs[f"vocab_{first_char}"]
 
-        terms = v_cache[f"vocab_{first_char}"]
+        # Only load the specific letter file we need into memory
+        #file_path = os.path.join(SPLIT_INDEX_DIR, f"{first_char}.json")
+        # Calculate byte position of term
+        #f.seek(terms[token][0])
 
-        try:
-            # Only load the specific letter file we need into memory
-            with open(file_path, 'r', encoding='utf-8') as f:
+        # Get postings for that term
+        #term_dict = json.loads(f.readline())
+        # Each posting is valid for scoring since it contains at least one query term
+        #postings_list = term_dict[token]
 
-                if len(valids) > 1: # Multiple valid tokens in query
-                    # Calculate byte position of term
-                    f.seek(terms[token][0])
+        champion_list = champion_dict[token] # Load current token's champion list
 
-                    # Get postings for that term
-                    term_dict = json.loads(f.readline())
-                    # Each posting is valid for scoring since it contains at least one query term
-                    postings_list = term_dict[token]
+        if len(valids) > 1: # Multiple valid tokens in query
 
-                    idf = terms[token][2] # Get idf for term
+            idf = terms[token][2] # Get idf for term
 
-                    # Calculate token weight in terms of query
-                    query_freq = q_tf[token] # Frequency of term in query
-                    qt_weight = (1 + math.log(query_freq, 10)) * idf # Calculate query term tf-idf weight
-                    q_weights[token] += qt_weight # Inserts or updates weight for current query term
-                    sum_q_weights_squared += qt_weight**2 # Update tracker for query vector length
+            # Calculate token weight in terms of query
+            query_freq = q_tf[token] # Frequency of term in query
+            qt_weight = (1 + math.log(query_freq, 10)) * idf # Calculate query term tf-idf weight
+            q_weights[token] += qt_weight # Inserts or updates weight for current query term
+            sum_q_weights_squared += qt_weight**2 # Update tracker for query vector length
 
-                    # Calculate dot product for each document in postings dict
-                    for id, d_weight in postings_list.items():
-                        current_q_weight = q_weights[token] # Retrieve query weight
-                        total_weight = d_weight * current_q_weight # Calculate dot product
-                        dot_products[int(id)] += total_weight # Insert or update dot product for current doc
+            # Calculate dot product for each document in postings dict
+            for d_weight, id in champion_list:
+                total_weight = d_weight * qt_weight # Calculate dot product
+                dot_products[int(id)] += total_weight # Insert or update dot product for current doc
 
-                elif len(valids) == 1: # Only one valid token in query
-                    f.seek(terms[token][0])
-                    term_dict = json.loads(f.readline())
-                    postings_list = term_dict[token] # Store token postings for score calculations
-                    break 
+        elif len(valids) == 1: # Only one valid token in query
+            break
 
-                else: # If no tokens are valid
-                    print("0 results found for current query.")
-                    return
-        except FileNotFoundError:
-            print(f"0 results found. (Index file for '{first_char}' missing).")
+        else: # If no tokens are valid
+            print("0 results found for current query.")
             return
     
     if(len(valids) > 1):
-        # Get doc vector lengths
-        with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
-            d_lengths = json.load(doc_file) # Dict to hold doc vectors lengths
-
         # Dict to hold cosine score for each doc
         similarity_scores = dict()
 
@@ -156,19 +158,14 @@ def search(query, doc_map):
 
     #Skip query vectory length calculations
     elif(len(valids) == 1):
-        with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
-            d_lengths = json.load(doc_file)
-        
         # Dict to hold cosine score for each term doc
         similarity_scores = dict()
 
         #Calculate score for each doc in postings list
-        for id, weight in postings_list.items():
+        for weight, id in champion_list:
             d_length = d_lengths[str(id)] # Get current doc length
             score = weight / d_length # Calculate cosine score for doc
             similarity_scores[int(id)] = score # Cosine(q,d) = d_weight / |d|
-        
-    print(valids)
 
     # Stop the stopwatch and calculate milliseconds
     end_time = time.time()

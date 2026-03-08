@@ -18,6 +18,11 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 DEV_DIR = os.path.join('developer', 'DEV') #Path to the data
 PARTIAL_INDEX_DIR = 'partial_indexes' # Where we save the small index chunks to avoid running out of RAM
 OFFLOAD_THRESHOLD = 15000 # How many documents to process before dumping memory to disk
+FINAL_INDEX_DIR = 'split_indexes' # Name of directory that contains split indexes
+VOCAB_DIR = 'split_vocabs' # Name of directory that contains vocabs for each index
+STATS_FILE = 'stats_index.json' # Name of stats file
+DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json' # Name of champions lists file
+DOC_LENGTH_FILE = 'doc_lengths.json' # Name of document vector length file
 
 def build_inverted_index():
     #Create the output folder if it doesn't exist
@@ -95,23 +100,21 @@ def build_inverted_index():
     if inverted_index:
         total_index_size += dump_partial_index(inverted_index, partial_index_count)
     
-    #  Save the Document Map (ID -> URL)
+    # Save the Document Map (ID -> URL)
     with open("doc_map.json", "w") as f:
         json.dump(doc_map, f)
     
     # Convert bytes to kilobytes
     total_KB_size = round((total_index_size / 1000), 2)
 
-    #Store stats in dict
+    # Store stats in dict
     stats = {"Document Count":doc_id, 
     "Partial Indexes Count":partial_index_count,
     "Unique Tokens":len(unique_tokens),
     "Size in Bytes":total_index_size,
     "Size in KB":total_KB_size}
 
-    STATS_FILE = 'stats_index.json' # Name of stats file
-
-    #Unload indexing statistics into file
+    # Unload indexing statistics into file
     print(f"   --> Offloading index stats to {STATS_FILE}...")
     with open(STATS_FILE, 'w', encoding='utf-8') as stats_file:
             json.dump(stats, stats_file, indent=2)
@@ -136,8 +139,6 @@ def mergeIndexes():
     print("\n--- STARTING MERGE---")
     import string
 
-    FINAL_INDEX_DIR = 'split_indexes'
-    VOCAB_DIR = 'split_vocabs'
     # Create the folder for our final split files if it doesn't exist
     if not os.path.exists(FINAL_INDEX_DIR):
         os.makedirs(FINAL_INDEX_DIR)
@@ -196,8 +197,6 @@ def mergeIndexes():
     vocab_dict = {char: {} for char in valid_chars}
     vocab_dict['_'] = {}
 
-    STATS_FILE = 'stats_index.json'
-
     # Get total number of docs for idf calculation
     with open(STATS_FILE, 'r', encoding='utf-8') as stats_:
         stat = json.load(stats_) # Load stats as dict
@@ -252,8 +251,6 @@ def mergeIndexes():
     
      # Let user know vocabs are being saved
     print("Saving document champion lists to disk...")
-    
-    DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json'
 
     # Save document champion lists to disk
     with open (DOC_CHAMPION_LISTS_FILE, 'w', encoding='utf-8') as fp:
@@ -268,8 +265,6 @@ def mergeIndexes():
     
     # Let user know final document vector lengths are being saved
     print("Saving final document vector lengths to disk...")
-    
-    DOC_LENGTH_FILE = 'doc_lengths.json'
 
     # Save lengths to file
     with open(DOC_LENGTH_FILE, 'w', encoding='utf-8') as d_file:
