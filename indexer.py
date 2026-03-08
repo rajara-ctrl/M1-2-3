@@ -5,6 +5,7 @@ from tokenizer import tokenize
 import glob
 import math
 import heapq
+import mmh3
 from collections import Counter
 
 # This simply ignores the warning about parsing XML documents
@@ -23,6 +24,7 @@ VOCAB_DIR = 'split_vocabs' # Name of directory that contains vocabs for each ind
 STATS_FILE = 'stats_index.json' # Name of stats file
 DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json' # Name of champions lists file
 DOC_LENGTH_FILE = 'doc_lengths.json' # Name of document vector length file
+HASH_SEED = 555 # Hash seed for consistent results
 
 def build_inverted_index():
     #Create the output folder if it doesn't exist
@@ -68,8 +70,9 @@ def build_inverted_index():
                     #Add any unique tokens to tracker
                     unique_tokens.update(tokens)
                     
-                    # Add to Index 
+                    # Add to Index and calculate tf
                     for token in tokens:
+
                         if token not in inverted_index:
                             inverted_index[token] = {}
                         
@@ -79,6 +82,27 @@ def build_inverted_index():
                         else:
                             inverted_index[token][doc_id] += 1
                             
+                    """ SIMHASH UNDER CONSTURCTION
+                    # Tf counter helper for SimHash creation
+                    doc_posting = Counter(tokens)
+                    
+                    # List to hold doc scores
+                    vector = [0] * 64
+
+                    # Create SimHash for each token in doc
+                    for token, tf in doc_posting.items():
+                        term_hash = mmh3.hash64(token, HASH_SEED)[0] # Create 64 bit token hash
+                        term_hash = list(term_hash) # Transform into list of bits
+
+                        for bit in term_hash: # Add or subtract token weight depending on bit
+                            if bit == '0':
+                                bit = -tf
+                            else:
+                                bit = tf
+                        
+                        for i in range(64): # Add token vector values to doc vector values
+                            vector[i] += term_hash[i]
+                    """
                     doc_id += 1
 
                     # Check progress every 1000 docs
@@ -133,8 +157,13 @@ def dump_partial_index(index_data, count):
 #Merges partial indexes into one dict and sorts postings list for each term
 def mergeIndexes():
     """
-    Merges all partial indexes into one, sorts the postings, and then 
-    splits the final index into smaller alphabetical files
+    Merges all partial indexes into one, sorts the postings, 
+    split the final index into smaller alphabetical files,
+    create and store vocabs for each index, calculate and 
+    store tf-idf weights and index byte position for each document,
+    calculate and store document vector lengths, and create 
+    and store champions lists for each term.
+
     """
     print("\n--- STARTING MERGE---")
     import string
@@ -165,8 +194,6 @@ def mergeIndexes():
                     merged[term] = postings
 
     # Sort postings
-    # We must sort the document IDs as integers to allow for efficient 
-    # linear-time O(x+y) intersection during search.
     print("Sorting postings lists...")
     for term in merged:
         merged[term] = dict(sorted(merged[term].items(), key=lambda x: int(x[0])))
@@ -199,8 +226,8 @@ def mergeIndexes():
 
     # Get total number of docs for idf calculation
     with open(STATS_FILE, 'r', encoding='utf-8') as stats_:
-        stat = json.load(stats_) # Load stats as dict
-        total_docs = stat["Document Count"] # Get total docs in index
+        stats = json.load(stats_) # Load stats as dict
+        total_docs = stats["Document Count"] # Get total docs in index
 
     # Counter for tracking document vector lengths
     d_lengths = Counter()
@@ -217,17 +244,21 @@ def mergeIndexes():
                 for term, posting in sorted(data.items()):
                     position = f.tell() # Get byte position
                     heap = [] # Min heap to track top r documents (by tf-idf weight)
-    
+
+                    # VOCAB CREATION
                     df = len(posting) # Gets total number of documents that contain term
                     idf = math.log((total_docs / df), 10) # Calculate idf
                     term_stats = [position, df, idf] # List that holds term statistics
-                    vocab_dict[char][term] = term_stats # Add term and byte position to vocabulary
-                
-                    for id, tf in posting.items(): # Calculate document vector length
+                    vocab_dict[char][term] = term_stats # Add term and byte position, df, and idf to vocabulary
+
+                    # CALCULATE DOC VECTOR LENGTH
+                    for id, tf in posting.items():
                         weight = (1 + math.log(tf, 10)) * idf # Calculate document weight
-                        posting[id] = weight # Change tf to tf-idf weight
+                        posting[id] = weight # Update posting tf to tf-idf weight
                         d_lengths[int(id)] += weight**2 # Add to sum of doc weight squared
-                        pair = (weight, id) # Make a pair fo heap insertions
+
+                        # CHAMPION LIST CREATION
+                        pair = (weight, id) # Make a pair for heap insertions
                         if(len(heap) < 10): # r = 10
                             heapq.heappush(heap, pair) # Push if less than 10
                         else: # Push if greater than smallest heap weight
@@ -236,37 +267,38 @@ def mergeIndexes():
                     heap = sorted(heap, reverse=True) # Sort champion heap in descending order
                     champion_dict[term] = heap # Add term champion heap to dict
 
+                    # SAVE POSTINGS LIST TO FILE
                     json.dump({term:posting}, f) # Add term and updated postings list to split index file
                     f.write("\n")
 
     # Let user know vocabs are being saved
     print("Saving index vocabs to disk...")
     
-    # Save vocabs to disk
+    # SAVE VOCABS TO DISK
     for char, dictionary in vocab_dict.items():
         if dictionary: # Only create file if vocab contains items
             file_path = os.path.join(VOCAB_DIR, f"vocab_{char}.json")
             with open (file_path, 'w', encoding='utf-8') as f:
                 json.dump(vocab_dict[char], f) # Write vocab dict to file
     
-     # Let user know vocabs are being saved
+     # Let user know champions lists are being saved
     print("Saving document champion lists to disk...")
 
-    # Save document champion lists to disk
+    # SAVE CHAMPIONS LIST TO FILE
     with open (DOC_CHAMPION_LISTS_FILE, 'w', encoding='utf-8') as fp:
         json.dump(champion_dict, fp) # Write champion dict to file
     
     # Let user know final document vector lengths are being calculated
     print("Calculating final document vector lengths...")
 
-    #Calculate final document vector lengths
+    # SQUARE ROOT ALL DOC VECTOR LENGTHS
     for d_id, length in d_lengths.items():
         d_lengths[d_id] = math.sqrt(length)
     
     # Let user know final document vector lengths are being saved
     print("Saving final document vector lengths to disk...")
 
-    # Save lengths to file
+    # SAVE LENGTHS TO FILE
     with open(DOC_LENGTH_FILE, 'w', encoding='utf-8') as d_file:
         json.dump(d_lengths, d_file)
 

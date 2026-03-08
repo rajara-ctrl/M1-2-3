@@ -14,6 +14,7 @@ VOCAB_DIR = 'split_vocabs'
 DOC_LENGTH_FILE = 'doc_lengths.json'
 DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json'
 
+# LOAD DATA INTO MEMORY
 # Get champions list for all terms
 with open(DOC_CHAMPION_LISTS_FILE, 'r', encoding='utf-8') as f:
     champion_dict = json.load(f) # Load champion list dict into memory
@@ -46,7 +47,7 @@ def load_doc_map():
 def search(query, doc_map):
     """
     Processes a user query, retrieves matching documents from the disk index,
-    performs Boolean AND intersection, and prints the top 5 URLs
+    performs ranked retrieval, and prints the top 5 URLs
     """
     # Start the stopwatch to prove we meet the < 300ms requirement
     start_time = time.time()
@@ -73,7 +74,8 @@ def search(query, doc_map):
     # List to track valid query tokens
     valids = []
     
-    # Find valid tokens and average weight them
+    # INDEX ELIMINATION
+    # Find valid tokens and average weight of them
     for token in tokens:
         # Determine which vocab file would contain this token 
         first_char = token[0] if token[0].isalnum() else '_'
@@ -86,7 +88,7 @@ def search(query, doc_map):
             valids.append(token) # Marks token as valid
             weight_threshold += terms[token][2] # Adds token weight to tracker
 
-    # Calculate average token weight for threshold
+    # Calculate average token tf-idf weight for threshold
     if len(valids) != 0: weight_threshold /= len(valids)
 
     # Make list of query terms with high weights
@@ -102,6 +104,7 @@ def search(query, doc_map):
     if len(high_weights_list) >= 4: # Make sure there are enough terms for effective search
         valids = high_weights_list
 
+    # PROCESSING VALID TOKENS
     for token in valids:
         # Determine first char of token
         first_char = token[0] if token[0].isalnum() else '_'
@@ -109,6 +112,7 @@ def search(query, doc_map):
         # Use vocab containg token
         terms = vocabs[f"vocab_{first_char}"]
 
+        #CAN USE THIS TO PRODUCE MORE RESULTS IF NEEDED (currently only use champion lists)
         # Only load the specific letter file we need into memory
         #file_path = os.path.join(SPLIT_INDEX_DIR, f"{first_char}.json")
         # Calculate byte position of term
@@ -125,13 +129,13 @@ def search(query, doc_map):
 
             idf = terms[token][2] # Get idf for term
 
-            # Calculate token weight in terms of query
+            # CALCULATE W_QT
             query_freq = q_tf[token] # Frequency of term in query
             qt_weight = (1 + math.log(query_freq, 10)) * idf # Calculate query term tf-idf weight
             q_weights[token] += qt_weight # Inserts or updates weight for current query term
             sum_q_weights_squared += qt_weight**2 # Update tracker for query vector length
 
-            # Calculate dot product for each document in postings dict
+            # CALCULATE DOT PRODUCT for each document in postings dict
             for d_weight, id in champion_list:
                 total_weight = d_weight * qt_weight # Calculate dot product
                 dot_products[int(id)] += total_weight # Insert or update dot product for current doc
@@ -150,18 +154,18 @@ def search(query, doc_map):
         # Find square root of calculated squared query vector length
         q_length = math.sqrt(sum_q_weights_squared)
 
-        # Calculate cosine similarity score for each dot product
+        # CALCULATE COSINE SIMILARITY SCORE for each dot product
         for id, dot in dot_products.items():
             d_length = d_lengths[str(id)] # Get current doc length
             normalization = (d_length * q_length) # Calculate normalization of vectors
             similarity_scores[int(id)] = (dot / normalization) # Cosine(q,d) = Dot product / |d|*|q|
 
-    #Skip query vectory length calculations
+    # If only one term, can skip query vectory length calculations
     elif(len(valids) == 1):
         # Dict to hold cosine score for each term doc
         similarity_scores = dict()
 
-        #Calculate score for each doc in postings list
+        # Calculate score for each doc in postings list
         for weight, id in champion_list:
             d_length = d_lengths[str(id)] # Get current doc length
             score = weight / d_length # Calculate cosine score for doc
