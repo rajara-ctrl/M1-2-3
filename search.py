@@ -167,6 +167,9 @@ def search(query, doc_map):
             score = weight / d_length # Calculate cosine score for doc
             similarity_scores[int(id)] = score # Cosine(q,d) = d_weight / |d|
 
+    # Sort final dict
+    results = sorted(similarity_scores.items(), key=lambda x: x[1],reverse=True)
+
     # Stop the stopwatch and calculate milliseconds
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000
@@ -176,16 +179,16 @@ def search(query, doc_map):
     print(f"Query: '{query}'")
     print(f"Found {len(similarity_scores)} valid documents in {elapsed_ms:.2f} ms")
     
-    #if not result_list:
-        #print("No documents contained ALL query terms.")
-        #return
+    if not results:
+        print("No documents contained query terms.")
+        return
 
-    #print(f"\nTop 5 URLs:")
+    print(f"\nTop 5 URLs:")
     # Loop through the first 5 document IDs and look up their real URLs
-    #for i, doc_id in enumerate(result_list[:5]):
-        #url = doc_map.get(str(doc_id), "URL not found")
-        #print(f"{i + 1}. {url}")
-    #print("-" * 35)
+    for i, pair in enumerate(results[:5]):
+        url = doc_map.get(str(pair[0]), "URL not found")
+        print(f"{i + 1}. {url}")
+    print("-" * 35)
 
 # Main ui
 if __name__ == "__main__":
