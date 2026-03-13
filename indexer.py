@@ -24,6 +24,7 @@ VOCAB_DIR = 'split_vocabs' # Name of directory that contains vocabs for each ind
 STATS_FILE = 'stats_index.json' # Name of stats file
 DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json' # Name of champions lists file
 DOC_LENGTH_FILE = 'doc_lengths.json' # Name of document vector length file
+DOC_ND_FILE = 'doc_near_duplicates.json' # Name of document near duplicates file
 HASH_SEED = 555 # Hash seed for consistent results
 
 def build_inverted_index():
@@ -31,7 +32,7 @@ def build_inverted_index():
     if not os.path.exists(PARTIAL_INDEX_DIR):
         os.makedirs(PARTIAL_INDEX_DIR)
 
-    inverted_index = {} # Map ids to urls
+    inverted_index = {} # Map tokens to postings lists
     # Structure: { "token": { doc_id_1: frequency, doc_id_2: frequency } }
 
     doc_map = {}  # Maps our integer IDs back to the real URLs
@@ -41,8 +42,10 @@ def build_inverted_index():
 
     unique_tokens = set() # set for tracking unique tokens
     total_index_size = int() # int for tracking total index size in bytes
-    doc_fingerprints = dict() # dict for map doc ids and fingerprints
+    doc_fingerprints = dict() # dict for map of doc ids and fingerprints
     doc_unique_hashes = set() # set for storing doc hashes and detecting duplicates
+    buckets = {f"bucket{i}": {} for i in range (1, 5)} # dict of buckets to calculate near duplicates
+    doc_nd = dict() # dict for map of doc ids and near duplicates list
     
     print(f"--- STARTING INDEXING from '{DEV_DIR}' ---") 
 
@@ -96,7 +99,10 @@ def build_inverted_index():
 
                     # SIMHASH FOR NEAR DUPLICATES
                     fingerprint = calculate_simhash(tokens)
-                    doc_fingerprints[doc_id] = fingerprint
+
+                    doc_fingerprints[doc_id] = fingerprint # Update fingerprint dict
+
+                    calculateNearDuplicates(fingerprint, doc_id, buckets, doc_nd, doc_fingerprints)
                     
                     doc_id += 1 # Increment docs processed
 
@@ -124,8 +130,8 @@ def build_inverted_index():
         json.dump(doc_map, f)
     
     # Save the Document Map (ID -> Fingerprint)
-    with open("doc_fingerprints.json", "w") as f:
-        json.dump(doc_fingerprints, f)
+    with open(DOC_ND_FILE, "w") as f:
+        json.dump(doc_nd, f)
     
     # Convert bytes to kilobytes
     total_KB_size = round((total_index_size / 1000), 2)
@@ -164,25 +170,76 @@ def calculate_simhash(tokens):
     # Create SimHash for each token in doc
     for token, tf in doc_posting.items():
         term_hash = mmh3.hash64(token, HASH_SEED)[0] # Create 64 bit token hash
-        term_hash = format(term_hash & 0xFFFFFFFFFFFFFFFF, '064b') # Mask negation
 
         for i in range(64): # Add or subtract token weight depending on bit
-            if term_hash[i] == '0':
-                tokens_vector[i] += -tf
-            else:
+            if (term_hash >> i) & 1: # If the i-th bit of the hash is 1
                 tokens_vector[i] += tf
+            else:
+                tokens_vector[i] -= tf
         
-    fingerprint = list() # Final document fingerprint
+    fingerprint = 0 # Final document fingerprint
 
     for i in range(64): # Compute final fingerprint for token
-            if tokens_vector[i] <= 0:
-                fingerprint.append('0')
-            else:
-                fingerprint.append('1')
-    
-    fingerprint = "".join(fingerprint) # Convert list to string
+            if tokens_vector[i] > 0:
+                fingerprint |= (1 << i)
 
     return fingerprint
+
+# Helper for tracking each document's near duplicates
+def getPotentialDuplicates(groups, buckets):
+     # Keep a set of potential near duplicates
+    potential_nd = set()
+
+    for i in range(1, 5): # check if bit group is the same as others
+
+        group = groups[i - 1]
+        bucket = buckets[f"bucket{i}"]
+
+        if group in bucket:
+            group_nd = bucket[group]
+            if len(group_nd) > 200: # Skip huge buckets
+                continue
+            potential_nd.update(group_nd) # add list of docs to potential near dp
+
+    return potential_nd
+
+# Helper to compare document fingerprint distances and update near duplicates
+def getNearDuplicates(fingerprint, current_id, potentials, nd_dict, previous_fp):
+    # Tracker for near duplicate list
+    nd = list()
+    # Calculate fingerprint distances
+    for id in potentials:
+        old_fp = previous_fp[id] # get current doc's fingerprint
+        distance = int(fingerprint) ^ int(old_fp) # XOR sets bit to 1 if different
+        distance = distance.bit_count() # counts number of 1 bits
+
+        if distance <= 3:
+            nd.append(id) # add current doc to near duplicate list
+            if id not in nd_dict: # make sure dict is not empty
+                nd_dict[id] = []
+            nd_dict[id].append(current_id) # update nd list for current doc
+    
+    nd_dict[current_id] = nd # Insert nd list for doc
+
+# Helper to insert doc group into buckets after updating near duplicates
+def addGroupsToBuckets(groups, buckets, doc_id):
+
+    for i in range(1,5):
+        chunk = groups[i-1]
+        bucket = buckets[f"bucket{i}"]
+
+        if chunk not in bucket:
+            bucket[chunk] = [] # add a new list if bit group not found
+
+        bucket[chunk].append(doc_id) # add doc to group list
+
+# Wrapper function for near duplicate calculation
+def calculateNearDuplicates(fp, id, buckets, nd_dict, previous_fp):
+
+    groups = [(fp >> 48) & 0xFFFF, (fp >> 32) & 0xFFFF, (fp >> 16) & 0xFFFF, fp & 0xFFFF] # Split into four groups of bits
+    potentials = getPotentialDuplicates(groups, buckets) # Get potential duplicates from indexed docs
+    getNearDuplicates(fp, id, potentials, nd_dict, previous_fp) # Update near duplicates
+    addGroupsToBuckets(groups, buckets, id) # Update buckets with current bit groups
 
 # Merges partial indexes into one dict and sorts postings list for each term
 def mergeIndexes():
@@ -339,5 +396,5 @@ def mergeIndexes():
         f"\n--- MERGE COMPLETE ---")
 
 if __name__ == "__main__":
-    #build_inverted_index()
-    mergeIndexes()
+    build_inverted_index()
+    #mergeIndexes()
