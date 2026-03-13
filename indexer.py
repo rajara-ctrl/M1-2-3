@@ -31,7 +31,7 @@ def build_inverted_index():
     if not os.path.exists(PARTIAL_INDEX_DIR):
         os.makedirs(PARTIAL_INDEX_DIR)
 
-    inverted_index = {} # The main map
+    inverted_index = {} # Map ids to urls
     # Structure: { "token": { doc_id_1: frequency, doc_id_2: frequency } }
 
     doc_map = {}  # Maps our integer IDs back to the real URLs
@@ -39,8 +39,10 @@ def build_inverted_index():
     doc_id = 0  # Counter for assigning unique IDs to documents
     partial_index_count = 1  # Counter for naming our partial files (index_1, index_2...)
 
-    unique_tokens = set() # Set for tracking unique tokens
+    unique_tokens = set() # set for tracking unique tokens
     total_index_size = int() # int for tracking total index size in bytes
+    doc_fingerprints = dict() # dict for map doc ids and fingerprints
+    doc_unique_hashes = set() # set for storing doc hashes and detecting duplicates
     
     print(f"--- STARTING INDEXING from '{DEV_DIR}' ---") 
 
@@ -57,6 +59,15 @@ def build_inverted_index():
                         
                     url = data.get('url', '')
                     content = data.get('content', '')
+
+                    # HASH FOR EXACT DUPLICATES
+                    doc_hash = mmh3.hash64(content)[0] # Calculate hash based on text
+
+                    if doc_hash in doc_unique_hashes: # Skips current doc if its a duplicate
+                        continue
+
+                    # Add hash to unique hashes
+                    doc_unique_hashes.add(doc_hash)
                     
                     # Map the Document ID
                     doc_map[doc_id] = url
@@ -67,7 +78,8 @@ def build_inverted_index():
                     
                     # Tokenize and stem, track unique tokens
                     tokens = tokenize(text)
-                    #Add any unique tokens to tracker
+
+                    # Add any unique tokens to tracker
                     unique_tokens.update(tokens)
                     
                     # Add to Index and calculate tf
@@ -81,29 +93,12 @@ def build_inverted_index():
                             inverted_index[token][doc_id] = 1
                         else:
                             inverted_index[token][doc_id] += 1
-                            
-                    """ SIMHASH UNDER CONSTURCTION
-                    # Tf counter helper for SimHash creation
-                    doc_posting = Counter(tokens)
+
+                    # SIMHASH FOR NEAR DUPLICATES
+                    fingerprint = calculate_simhash(tokens)
+                    doc_fingerprints[doc_id] = fingerprint
                     
-                    # List to hold doc scores
-                    vector = [0] * 64
-
-                    # Create SimHash for each token in doc
-                    for token, tf in doc_posting.items():
-                        term_hash = mmh3.hash64(token, HASH_SEED)[0] # Create 64 bit token hash
-                        term_hash = list(term_hash) # Transform into list of bits
-
-                        for bit in term_hash: # Add or subtract token weight depending on bit
-                            if bit == '0':
-                                bit = -tf
-                            else:
-                                bit = tf
-                        
-                        for i in range(64): # Add token vector values to doc vector values
-                            vector[i] += term_hash[i]
-                    """
-                    doc_id += 1
+                    doc_id += 1 # Increment docs processed
 
                     # Check progress every 1000 docs
                     if doc_id % 1000 == 0:
@@ -125,8 +120,12 @@ def build_inverted_index():
         total_index_size += dump_partial_index(inverted_index, partial_index_count)
     
     # Save the Document Map (ID -> URL)
-    with open("doc_map.json", "w") as f:
+    with open("doc_urls.json", "w") as f:
         json.dump(doc_map, f)
+    
+    # Save the Document Map (ID -> Fingerprint)
+    with open("doc_fingerprints.json", "w") as f:
+        json.dump(doc_fingerprints, f)
     
     # Convert bytes to kilobytes
     total_KB_size = round((total_index_size / 1000), 2)
@@ -154,7 +153,38 @@ def dump_partial_index(index_data, count):
     #Return current size of file in bytes
     return os.path.getsize(filename)
 
-#Merges partial indexes into one dict and sorts postings list for each term
+# Helper to calculate the doc simhash for near duplicate detection
+def calculate_simhash(tokens):
+    # Tf counter helper for SimHash creation
+    doc_posting = Counter(tokens)
+    
+    # List to hold doc scores
+    tokens_vector = [0] * 64
+
+    # Create SimHash for each token in doc
+    for token, tf in doc_posting.items():
+        term_hash = mmh3.hash64(token, HASH_SEED)[0] # Create 64 bit token hash
+        term_hash = format(term_hash & 0xFFFFFFFFFFFFFFFF, '064b') # Mask negation
+
+        for i in range(64): # Add or subtract token weight depending on bit
+            if term_hash[i] == '0':
+                tokens_vector[i] += -tf
+            else:
+                tokens_vector[i] += tf
+        
+    fingerprint = list() # Final document fingerprint
+
+    for i in range(64): # Compute final fingerprint for token
+            if tokens_vector[i] <= 0:
+                fingerprint.append('0')
+            else:
+                fingerprint.append('1')
+    
+    fingerprint = "".join(fingerprint) # Convert list to string
+
+    return fingerprint
+
+# Merges partial indexes into one dict and sorts postings list for each term
 def mergeIndexes():
     """
     Merges all partial indexes into one, sorts the postings, 
