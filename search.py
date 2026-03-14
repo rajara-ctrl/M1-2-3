@@ -4,6 +4,7 @@ import json
 import time
 import math
 import re
+import heapq
 from tokenizer import tokenize
 from collections import Counter
 
@@ -13,6 +14,7 @@ SPLIT_INDEX_DIR = 'split_indexes'
 VOCAB_DIR = 'split_vocabs'
 DOC_LENGTH_FILE = 'doc_lengths.json'
 DOC_CHAMPION_LISTS_FILE = 'doc_champion_lists.json'
+DOC_ND_FILE = 'doc_near_duplicates.json'
 
 # LOAD DATA INTO MEMORY
 # Get champions list for all terms
@@ -22,6 +24,10 @@ with open(DOC_CHAMPION_LISTS_FILE, 'r', encoding='utf-8') as f:
 # Get doc vector lengths
 with open(DOC_LENGTH_FILE, 'r', encoding='utf-8') as doc_file:
     d_lengths = json.load(doc_file) # Dict to hold doc vectors lengths
+
+# Get near duplicate lists
+with open(DOC_ND_FILE, 'r', encoding='utf-8') as nd_file:
+    doc_nd = json.load(nd_file)
 
 # Load vocabs into memory
 vocabs = {} # Dict to hold vocabs
@@ -149,32 +155,60 @@ def search(query, doc_map):
             elapsed_ms = (end_time - start_time) * 1000
             return {"results": [], "time": round(elapsed_ms, 2), "count": 0}  # No more terminal printing
     
-    if(len(valids) > 1):
-        # Dict to hold cosine score for each doc
-        similarity_scores = dict()
+     # Helpers for near duplicate elimination
+    results = []
+    traversed = set() # Holds docs to skip like near duplicates
 
+    if(len(valids) > 1):
         # Find square root of calculated squared query vector length
         q_length = math.sqrt(sum_q_weights_squared)
-
+        
         # CALCULATE COSINE SIMILARITY SCORE for each dot product
         for id, dot in dot_products.items():
+            if id in traversed: # Skips doc if already calculated
+                continue
+
             d_length = d_lengths[str(id)] # Get current doc length
             normalization = (d_length * q_length) # Calculate normalization of vectors
-            similarity_scores[int(id)] = (dot / normalization) # Cosine(q,d) = Dot product / |d|*|q|
+            score = (dot / normalization) # Cosine(q,d) = Dot product / |d|*|q|
+
+            if len(results) < 20: # Add to results heap if not full
+                heapq.heappush(results, (score, id))
+            else: # Add if greater than min score
+                heapq.heappushpop(results, (score, id))
+
+            # Mark duplicates
+            if id in doc_nd:
+                traversed.update(doc_nd[id])
+
+            traversed.add(id) # Add id to traversed set
 
     # If only one term, can skip query vectory length calculations
     elif(len(valids) == 1):
-        # Dict to hold cosine score for each term doc
-        similarity_scores = dict()
+        # Get term
+        term = valids[0]
+        # Get champions list
+        c_list = champion_dict[term]
+        # Skip near duplicates
+        for weight_, d_id in c_list:
+            if d_id in traversed: # Skips doc if already calculated
+                continue
 
-        # Calculate score for each doc in postings list
-        for weight, id in champion_list:
-            d_length = d_lengths[str(id)] # Get current doc length
-            score = weight / d_length # Calculate cosine score for doc
-            similarity_scores[int(id)] = score # Cosine(q,d) = d_weight / |d|
+            # Calculate score for each doc in postings list
+            d_length = d_lengths[str(d_id)] # Get current doc length
+            score = weight_ / d_length # # Cosine(q,d) = d_weight / |d|
 
-    # Sort final dict
-    results = sorted(similarity_scores.items(), key=lambda x: x[1],reverse=True)
+            # Push champions list
+            heapq.heappush(results, (score, d_id))
+
+            # Mark duplicates
+            if d_id in doc_nd:
+                traversed.update(doc_nd[d_id])
+
+            traversed.add(d_id) # Add id to traversed set
+
+    # Sorts results heap by highest similarity score
+    results = sorted(results, key=lambda x: x[0],reverse=True)
 
 
     #Deleted the print results since the output will no longer be terminal-based
@@ -183,6 +217,7 @@ def search(query, doc_map):
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000
 
+<<<<<<< HEAD
     # Since a regular html file is not allowed to run scripts or read the JSON off the hard drive, 
     # the flask engine links the scripts with the webpage
     # ----------------------- FLASK OUTPUT---------------------------
@@ -206,6 +241,23 @@ def search(query, doc_map):
         
     # Return the final package of data back to the Flask server
     return {"results": final_results, "time": round(elapsed_ms, 2), "count": len(similarity_scores)}
+=======
+    # Formatting & Output
+    print(f"\n--- Search Results ---")
+    print(f"Query: '{query}'")
+    print(f"Found {len(results)} valid documents in {elapsed_ms:.2f} ms")
+    
+    if not results:
+        print("No documents contained query terms.")
+        return
+
+    print(f"\nTop {len(results)} URLs:")
+    # Loop through the first N document IDs and look up their real URLs
+    for i, pair in enumerate(results[:20]):
+        url = doc_map.get(str(pair[1]), "URL not found")
+        print(f"{i + 1}. {url}")
+    print("-" * 35)
+>>>>>>> c9ad354a67220e9fa5caf2c680ea3b012f4c98c4
 
 # Main ui
 # Flask is now running as the main program, so we no longer need this
