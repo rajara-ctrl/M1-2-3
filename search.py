@@ -236,7 +236,7 @@ def search(query, doc_map):
         url = doc_map.get(str(pair[1]), "URL not found")
         
         # Add this specific result (URL and Score) to our list
-        final_results.append({"url": url, "score": round(pair[1], 4)})
+        final_results.append({"url": url, "score": round(pair[0], 4)}) # switched to pair[1] since heapq was used for sorting (Score, DocID)
         
     # Return the final package of data back to the Flask server
     return {"results": final_results, "time": round(elapsed_ms, 2), "count": len(results)}
