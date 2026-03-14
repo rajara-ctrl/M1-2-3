@@ -231,15 +231,15 @@ def search(query, doc_map):
     
     # Loop through the top 5 document IDs (already sorted by Cosine Similarity)
     for i, pair in enumerate(results[:5]):
-        # pair[0] is the DocID, pair[1] is the Cosine Score.
+        # pair[1] is the DocID, pair[0] is the Cosine Score using heapq
         # We look up the real URL using the DocID from our doc_map
-        url = doc_map.get(str(pair[0]), "URL not found")
+        url = doc_map.get(str(pair[1]), "URL not found")
         
         # Add this specific result (URL and Score) to our list
         final_results.append({"url": url, "score": round(pair[1], 4)})
         
     # Return the final package of data back to the Flask server
-    return {"results": final_results, "time": round(elapsed_ms, 2), "count": len(similarity_scores)}
+    return {"results": final_results, "time": round(elapsed_ms, 2), "count": len(results)}
 
 # Main ui
 # Flask is now running as the main program, so we no longer need this
