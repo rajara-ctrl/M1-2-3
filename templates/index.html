@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SECURE_SEARCH // v1.0</title>
+    
+    <style>
+        /* Base page styling */
+        body {
+            background-color: #0a0a0c;
+            color: #00ff41;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Centers everything horizontally */
+            margin-top: 10vh; /* Pushes the layout slightly down from the top */
+        }
+        
+        h1 {
+            font-size: 3rem;
+            text-shadow: 0 0 10px #00ff41; /* Adds a glowing effect */
+            margin-bottom: 10px;
+        }
+        
+        /* Flexbox container to put the search bar and button side by side */
+        .search-container {
+            width: 60%;
+            max-width: 800px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        /* The actual text input box */
+        input[type="text"] {
+            flex-grow: 1; /* Makes the bar take up all available remaining space */
+            background-color: #111;
+            border: 1px solid #00ff41;
+            color: #00ff41;
+            padding: 15px;
+            font-size: 1.2rem;
+            font-family: 'Courier New', Courier, monospace;
+            outline: none;
+        }
+        
+        /* Adds a stronger glow when the user clicks inside the search bar */
+        input[type="text"]:focus {
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+        }
+        
+        /* The submit button */
+        button {
+            background-color: #00ff41;
+            color: #0a0a0c;
+            border: none;
+            padding: 0 25px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s; /* Smooth animation when hovered */
+        }
+        
+        button:hover {
+            background-color: #fff;
+            box-shadow: 0 0 15px #fff;
+        }
+        
+        /* Where the execution time and total results are displayed */
+        #stats {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: #888;
+        }
+        
+        /* Container that holds all the URL cards */
+        #results-container {
+            width: 60%;
+            max-width: 800px;
+            margin-top: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        /* Individual visual boxes for each URL returned */
+        .result-card {
+            background-color: #151515;
+            border-left: 4px solid #00ff41;
+            padding: 15px;
+            word-wrap: break-word; /* Prevents long URLs from breaking the layout */
+        }
+        
+        /* Styling the links so they look clickable */
+        .result-card a {
+            color: #00ff41;
+            text-decoration: none;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        
+        .result-card a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Smaller grey text for the cosine similarity score */
+        .score {
+            font-size: 0.8rem;
+            color: #555;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SECURE_SEARCH //</h1>
+    
+    <div class="search-container">
+        <input type="text" id="queryInput" placeholder="Enter query parameters..." onkeypress="handleKeyPress(event)">
+        <button onclick="executeSearch()">EXECUTE</button>
+    </div>
+
+    <div id="stats"></div>
+    <div id="results-container"></div>
+
+    <script>
+        // Checks if the key pressed was 'Enter'. If yes, trigger the search
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') {
+                executeSearch();
+            }
+        }
+
+        // 'async' waits for the backend to finish searching without freezing the browser
+        async function executeSearch() {
+            // Grab the text the user typed in
+            const query = document.getElementById('queryInput').value;
+            // Grab the empty divs so we can put text inside them
+            const statsDiv = document.getElementById('stats');
+            const resultsDiv = document.getElementById('results-container');
+            
+            // If the search bar is empty, do nothing
+            if (!query) return;
+
+            // Give the user visual feedback that the system is working
+            statsDiv.innerText = "Querying databases...";
+            resultsDiv.innerHTML = "";
+
+            try {
+                // 'fetch' makes an HTTP GET request to our Flask route (/api/search?q=query)
+                // encodeURIComponent makes sure spaces and symbols in the query are web-safe
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                
+                // Convert the response from Flask back into a usable JavaScript object
+                const data = await response.json();
+
+                // Inject the speed and count stats into the page
+                statsDiv.innerText = `[ SYSTEM ] Found ${data.count} matches in ${data.time} ms`;
+
+                // If no results came back, tell the user and exit the function early
+                if (data.results.length === 0) {
+                    resultsDiv.innerHTML = "<div class='result-card'>0 occurrences found.</div>";
+                    return;
+                }
+
+                // Loop through the 5 results returned by Flask
+                data.results.forEach(item => {
+                    // Create a new HTML div for each result
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    
+                    // Inject the URL and the Cosine Score into the div
+                    card.innerHTML = `
+                        <a href="${item.url}" target="_blank">${item.url}</a>
+                        <div class="score">Cosine Similarity Score: ${item.score}</div>
+                    `;
+                    
+                    // Add this finished card to the main results container
+                    resultsDiv.appendChild(card);
+                });
+
+            } catch (error) {
+                // If Flask crashes or the server is off, display an error
+                statsDiv.innerText = "SYSTEM ERROR: Connection to backend failed.";
+            }
+        }
+    </script>
+</body>
+</html>
