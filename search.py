@@ -217,7 +217,6 @@ def search(query, doc_map):
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000
 
-<<<<<<< HEAD
     # Since a regular html file is not allowed to run scripts or read the JSON off the hard drive, 
     # the flask engine links the scripts with the webpage
     # ----------------------- FLASK OUTPUT---------------------------
@@ -241,23 +240,6 @@ def search(query, doc_map):
         
     # Return the final package of data back to the Flask server
     return {"results": final_results, "time": round(elapsed_ms, 2), "count": len(similarity_scores)}
-=======
-    # Formatting & Output
-    print(f"\n--- Search Results ---")
-    print(f"Query: '{query}'")
-    print(f"Found {len(results)} valid documents in {elapsed_ms:.2f} ms")
-    
-    if not results:
-        print("No documents contained query terms.")
-        return
-
-    print(f"\nTop {len(results)} URLs:")
-    # Loop through the first N document IDs and look up their real URLs
-    for i, pair in enumerate(results[:20]):
-        url = doc_map.get(str(pair[1]), "URL not found")
-        print(f"{i + 1}. {url}")
-    print("-" * 35)
->>>>>>> c9ad354a67220e9fa5caf2c680ea3b012f4c98c4
 
 # Main ui
 # Flask is now running as the main program, so we no longer need this
