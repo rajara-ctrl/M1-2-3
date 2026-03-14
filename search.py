@@ -30,8 +30,10 @@ files = sorted(glob.glob(f"{VOCAB_DIR}/vocab_*.json")) # Get every vocab file na
 
 for file in files:
     with open(file, 'r', encoding='utf-8') as vocab_file:
-        file = re.split(r'[./]', file)[1]
-        vocabs[f"{file}"] = json.load(vocab_file) # Add vocab to dict
+        # os.path.basename grabs just "vocab_m.json" for os independence
+        # Then split by the period to just keep "vocab_m"
+        clean_name = os.path.basename(file).split('.')[0]
+        vocabs[clean_name] = json.load(vocab_file) # Add vocab to dict
 
 def load_doc_map():
     """
