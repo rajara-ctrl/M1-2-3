@@ -78,9 +78,21 @@ def build_inverted_index():
                     # Parse HTML using bs
                     soup = bs(content, 'lxml')
                     text = soup.get_text()
-                    
+
                     # Tokenize and stem, track unique tokens
                     tokens = tokenize(text)
+
+                    # Treat bold, h1, h2, h3, and titles as more important
+                    important_tags = ['b', 'strong', 'h1', 'h2', 'h3', 'title']
+                    for tag in important_tags:
+                        for node in soup.find_all(tag):
+                            # Extract text from the specific tag and tokenize it
+                            important_tokens = tokenize(node.get_text())
+                            
+                            # Add these tokens to the main list 2 extra times
+                            # This increases TF for this document
+                            tokens.extend(important_tokens * 2)
+                    
 
                     # Add any unique tokens to tracker
                     unique_tokens.update(tokens)
@@ -397,4 +409,4 @@ def mergeIndexes():
 
 if __name__ == "__main__":
     build_inverted_index()
-    #mergeIndexes()
+    mergeIndexes()
