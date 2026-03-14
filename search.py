@@ -8,7 +8,7 @@ from tokenizer import tokenize
 from collections import Counter
 
 # --- CONFIGURATION ---
-DOC_MAP_FILE = 'doc_map.json'
+DOC_MAP_FILE = 'doc_urls.json' # Fixed to match the document map update
 SPLIT_INDEX_DIR = 'split_indexes'
 VOCAB_DIR = 'split_vocabs'
 DOC_LENGTH_FILE = 'doc_lengths.json'
@@ -58,8 +58,7 @@ def search(query, doc_map):
     tokens = tokenize(query)
     
     if not tokens:
-        print("Please enter a valid query.")
-        return
+        return {"results": [], "time": 0.0, "count": 0} # No more terminal printing
 
     # Counter to hold dot product for each doc
     dot_products = Counter()
@@ -144,8 +143,9 @@ def search(query, doc_map):
             break
 
         else: # If no tokens are valid
-            print("0 results found for current query.")
-            return
+            end_time = time.time()
+            elapsed_ms = (end_time - start_time) * 1000
+            return {"results": [], "time": round(elapsed_ms, 2), "count": 0}  # No more terminal printing
     
     if(len(valids) > 1):
         # Dict to hold cosine score for each doc
@@ -174,27 +174,40 @@ def search(query, doc_map):
     # Sort final dict
     results = sorted(similarity_scores.items(), key=lambda x: x[1],reverse=True)
 
+
+    #Deleted the print results since the output will no longer be terminal-based
+
     # Stop the stopwatch and calculate milliseconds
     end_time = time.time()
     elapsed_ms = (end_time - start_time) * 1000
 
-    # Formatting & Output
-    print(f"\n--- Search Results ---")
-    print(f"Query: '{query}'")
-    print(f"Found {len(similarity_scores)} valid documents in {elapsed_ms:.2f} ms")
-    
-    if not results:
-        print("No documents contained query terms.")
-        return
+    # Since a regular html file is not allowed to run scripts or read the JSON off the hard drive, 
+    # the flask engine links the scripts with the webpage
+    # ----------------------- FLASK OUTPUT---------------------------
+    # Instead of printing to the terminal, the results are packaged into a dictionary
+    # Flask automatically converts this dictionary into a JSON format to send to the webpage
 
-    print(f"\nTop 5 URLs:")
-    # Loop through the first 5 document IDs and look up their real URLs
+    # If the search yielded zero valid documents, return an empty package
+    if not results:
+        return {"results": [], "time": round(elapsed_ms, 2), "count": 0}
+
+    final_results = []
+    
+    # Loop through the top 5 document IDs (already sorted by Cosine Similarity)
     for i, pair in enumerate(results[:5]):
+        # pair[0] is the DocID, pair[1] is the Cosine Score.
+        # We look up the real URL using the DocID from our doc_map
         url = doc_map.get(str(pair[0]), "URL not found")
-        print(f"{i + 1}. {url}")
-    print("-" * 35)
+        
+        # Add this specific result (URL and Score) to our list
+        final_results.append({"url": url, "score": round(pair[1], 4)})
+        
+    # Return the final package of data back to the Flask server
+    return {"results": final_results, "time": round(elapsed_ms, 2), "count": len(similarity_scores)}
 
 # Main ui
+# Flask is now running as the main program, so we no longer need this
+"""
 if __name__ == "__main__":
     print("Loading Document Map into memory...")
     doc_map = load_doc_map()
@@ -206,3 +219,4 @@ if __name__ == "__main__":
             if user_query.lower() == 'quit':
                 break
             search(user_query, doc_map)
+"""
